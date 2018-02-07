@@ -186,6 +186,8 @@ class NNTP(object):
         if probablyipv6(host):
             af = socket.AF_INET6
 
+        naked_socket = socket.socket(af, socktype, proto)
+
         if sslenabled:
             # Use context or just wrapper
             if sabnzbd.HAVE_SSL_CONTEXT:
@@ -204,14 +206,14 @@ class NNTP(object):
                     # At their own risk, socket will error out in case it was invalid
                     ctx.set_ciphers(sabnzbd.cfg.ssl_ciphers())
 
-                self.sock = ctx.wrap_socket(socket.socket(af, socktype, proto), server_hostname=str(nw.server.host))
+                self.sock = ctx.wrap_socket(naked_socket, server_hostname=str(nw.server.host))
             else:
                 # Ciphers have to be None, if set to empty-string it will fail on <2.7.9
                 ciphers = sabnzbd.cfg.ssl_ciphers() if sabnzbd.cfg.ssl_ciphers() else None
                 # Use a regular wrapper, no certificate validation
-                self.sock = ssl.wrap_socket(socket.socket(af, socktype, proto), ciphers=ciphers)
+                self.sock = ssl.wrap_socket(naked_socket, ciphers=ciphers)
         else:
-            self.sock = socket.socket(af, socktype, proto)
+            self.sock = naked_socket
 
         try:
             # Open the connection in a separate thread due to avoid blocking
