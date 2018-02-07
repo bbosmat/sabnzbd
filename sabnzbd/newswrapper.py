@@ -26,6 +26,7 @@ from nntplib import NNTPPermanentError
 import time
 import logging
 import re
+import os
 import ssl
 
 import sabnzbd
@@ -186,7 +187,21 @@ class NNTP(object):
         if probablyipv6(host):
             af = socket.AF_INET6
 
-        naked_socket = socket.socket(af, socktype, proto)
+        if os.environ.get('SOCKS_PROXY_TYPE'):
+            socks_proxy_type = os.environ['SOCKS_PROXY']
+            socks_proxy_host = os.environ['SOCKS_PROXY_HOST']
+            socks_proxy_port = int(os.environ.get('SOCKS_PROXY_PORT', 1081))
+            logging.info("%s@%s: Using %s proxy on %s:%s",
+                                        self.nw.thrdnum, self.nw.server.host, socks_proxy_type, socks_proxy_host, socks_proxy_type)
+            import socks
+            naked_socket = socks.socksocket(af, socktype, proto)
+            naked_socket.set_proxy(
+                getattr(socks, socks_proxy_type),
+                socks_proxy_host,
+                socks_proxy_port
+            )
+        else:
+            naked_socket = socket.socket(af, socktype, proto)
 
         if sslenabled:
             # Use context or just wrapper
