@@ -117,6 +117,22 @@ def con(sock, host, port, sslenabled, write_fds, nntp):
     try:
         sock.connect((host, port))
         sock.setblocking(0)
+
+        if nntp.using_ssl and nntp.using_socks_proxy:
+            # upgrade to an ssl connection after first connecting to socks proxy
+            if nntp.ssl_create_context:
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = nntp.ssl_check_hostname
+                ctx.verify_mode = nntp.ssl_verify_mode
+                if(sabnzbd.cfg.ssl_ciphers()):
+                    # At their own risk, socket will error out in case it was invalid
+                    ctx.set_ciphers(sabnzbd.cfg.ssl_ciphers())
+                nntp.sock = ctx.wrap_socket(sock, server_hostname=nntp.ssl_server_hostname)
+            else:
+                nntp.sock = ssl.wrap_socket(sock, ciphers=nntp.ssl_ciphers)
+        else:
+            nntp.sock = sock
+
         if sslenabled:
             # Log SSL/TLS info
             logging.info("%s@%s: Connected using %s (%s)",
@@ -187,7 +203,9 @@ class NNTP(object):
         if probablyipv6(host):
             af = socket.AF_INET6
 
-        if os.environ.get('SOCKS_PROXY_TYPE'):
+        self.using_socks_proxy = os.environ.get('SOCKS_PROXY_TYPE') is not None
+
+        if self.using_socks_proxy:
             socks_proxy_type = os.environ['SOCKS_PROXY_TYPE']
             socks_proxy_host = os.environ['SOCKS_PROXY_HOST']
             socks_proxy_port = int(os.environ.get('SOCKS_PROXY_PORT', 1081))
@@ -221,24 +239,55 @@ class NNTP(object):
                     # At their own risk, socket will error out in case it was invalid
                     ctx.set_ciphers(sabnzbd.cfg.ssl_ciphers())
 
-                self.sock = ctx.wrap_socket(naked_socket, server_hostname=str(nw.server.host))
+                if self.using_socks_proxy:
+                    self.using_ssl = True
+                    self.ssl_create_context = True
+                    self.ssl_check_hostname = ctx.check_hostname
+                    self.ssl_verify_mode = ctx.verify_mode
+                    self.ssl_ciphers = sabnzbd.cfg.ssl_ciphers
+                    self.ssl_server_hostname = str(nw.server.host)
+                    self.s = naked_socket
+                else:
+                    self.s = ctx.wrap_socket(naked_socket, server_hostname=str(nw.server.host))
             else:
                 # Ciphers have to be None, if set to empty-string it will fail on <2.7.9
                 ciphers = sabnzbd.cfg.ssl_ciphers() if sabnzbd.cfg.ssl_ciphers() else None
                 # Use a regular wrapper, no certificate validation
-                self.sock = ssl.wrap_socket(naked_socket, ciphers=ciphers)
+                if self.using_socks_proxy:
+                    self.using_ssl = True
+                    self.ssl_create_context = False
+                    self.ssl_ciphers = ciphers
+                    self.s = naked_socket
+                else:
+                    self.s = ssl.wrap_socket(naked_socket, ciphers=ciphers)
         else:
-            self.sock = naked_socket
+            self.s = naked_socket
 
         try:
             # Open the connection in a separate thread due to avoid blocking
             # For server-testing we do want blocking
             if not block:
-                Thread(target=con, args=(self.sock, self.host, self.port, sslenabled, write_fds, self)).start()
+                Thread(target=con, args=(self.s, self.host, self.port, sslenabled, write_fds, self)).start()
             else:
                 # if blocking (server test) only wait for 15 seconds during connect until timeout
-                self.sock.settimeout(15)
-                self.sock.connect((self.host, self.port))
+                self.s.settimeout(15)
+                self.s.connect((self.host, self.port))
+
+                if self.using_ssl and self.using_socks_proxy:
+                    # upgrade to an ssl connection after first connecting to socks proxy
+                    if self.ssl_create_context:
+                        ctx = ssl.create_default_context()
+                        ctx.check_hostname = self.ssl_check_hostname
+                        ctx.verify_mode = self.ssl_verify_mode
+                        if(sabnzbd.cfg.ssl_ciphers()):
+                            # At their own risk, socket will error out in case it was invalid
+                            ctx.set_ciphers(sabnzbd.cfg.ssl_ciphers())
+                        self.sock = ctx.wrap_socket(self.s, server_hostname=self.ssl_server_hostname)
+                    else:
+                        self.sock = ssl.wrap_socket(self.s, ciphers=self.ssl_ciphers)
+                else:
+                    self.sock = self.s
+
                 if sslenabled:
                     # Log SSL/TLS info
                     logging.info("%s@%s: Connected using %s (%s)",
