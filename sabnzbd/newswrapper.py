@@ -188,7 +188,7 @@ class NNTP(object):
             af = socket.AF_INET6
 
         if os.environ.get('SOCKS_PROXY_TYPE'):
-            socks_proxy_type = os.environ['SOCKS_PROXY']
+            socks_proxy_type = os.environ['SOCKS_PROXY_TYPE']
             socks_proxy_host = os.environ['SOCKS_PROXY_HOST']
             socks_proxy_port = int(os.environ.get('SOCKS_PROXY_PORT', 1081))
             logging.info("%s@%s: Using %s proxy on %s:%s",
